@@ -1,0 +1,59 @@
+{
+  "name": "地牢探险",
+  "capabilities": {
+    "adventurer": [],
+    "sage": ["jev", "svc:solver"],
+    "narrator": ["llm", "svc:pm"],
+    "oracle": ["jev", "svc:solver"],
+    "dm": ["jev"],
+    "gm": ["svc:pm"]
+  },
+  "services": {
+    "solver": {
+      "runtime": "python",
+      "entry": "services/solver.py",
+      "port": 8901,
+      "data_dir": "dungeon",
+      "http": {
+        "public": [
+          "GET /health",
+          "GET /top",
+          "POST /score"
+        ]
+      }
+    },
+    "pm": {
+      "runtime": "python",
+      "entry": "services/pm.py",
+      "port": 8902,
+      "data_dir": "dungeon",
+      "http": {
+        "public": [
+          "GET /health",
+          "POST /newmatch"
+        ]
+      },
+      "gateway_access": {
+        "create_matches": true,
+        "stop_matches": true
+      },
+      "env_allow": [
+        "LLM_UPSTREAM_URL",
+        "LLM_UPSTREAM_KEY",
+        "LLM_UPSTREAM_MODEL"
+      ],
+      "match_access": {
+        "observe": "full",
+        "commands": ["gm"],
+        "notify": true,
+        "timeout_ms": 3000
+      },
+      "sandbox": {
+        "profile": "strict",
+        "memory_mb": 256,
+        "cpu_s": 300,
+        "max_file_mb": 64
+      }
+    }
+  }
+}

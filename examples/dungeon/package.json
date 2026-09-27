@@ -1,0 +1,19 @@
+{
+  "name": "dungeon-pack",
+  "private": true,
+  "description": "地牢示例包构建：TS 源码在 src/，产物 rules.js 与 brains/*.js 直接被网关读取（产物提交入库，网关运行时零 node 依赖）。",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "tsc --noEmit",
+    "dev": "vite --open /dev.html"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "pinia": "^4.0.3",
+    "vue": "^3.5.43"
+  }
+}

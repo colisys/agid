@@ -1,0 +1,5 @@
+{
+  "board_size": 3,
+  "marks": ["X", "O"],
+  "note": "No tunable numbers in tic-tac-toe; kept for pack shape parity with rts/tuning.json."
+}

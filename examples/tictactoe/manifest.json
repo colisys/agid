@@ -1,0 +1,7 @@
+{
+  "name": "井字棋",
+  "capabilities": {
+    "blocker": [],
+    "random": []
+  }
+}

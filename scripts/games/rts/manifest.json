@@ -1,0 +1,8 @@
+{
+  "name": "RTS 对抗",
+  "capabilities": {
+    "aggressive": ["jev"],
+    "defensive": ["jev"],
+    "scripted_opponent": []
+  }
+}

@@ -1,0 +1,379 @@
+openapi: 3.1.0
+info:
+  title: Universal Gateway (Jev Decision + Multi-LLM Orchestration)
+  version: 0.1.0
+  description: |
+    北向统一入口。/v1/execute 为主入口（LLM 编排 + Jev 决策 + 门控执行）；
+    /v1/decide 为 Jev 直通校验版（服务端持 key）；/v1/chat/completions 为 OpenAI 兼容透传。
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/execute:
+    post:
+      summary: 编排入口
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goal]
+              properties:
+                goal:
+                  type: string
+                context:
+                  type: object
+                  additionalProperties: true
+                candidates_hint:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                policy_set:
+                  type: string
+                  default: default-v1
+                budget:
+                  type: object
+                  properties:
+                    max_jev_tokens:
+                      type: integer
+                    max_llm_cost_usd:
+                      type: number
+      responses:
+        '200':
+          description: verdict + 步骤 + 用量
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [verdict, trace_id, usage]
+                properties:
+                  verdict:
+                    type: object
+                    required: [action, confidence]
+                    properties:
+                      action:
+                        type: string
+                        enum: [allow, confirm, human, deny]
+                      route:
+                        type: string
+                      confidence:
+                        type: number
+                      jev_model:
+                        type: string
+                        example: jev-1.13.0
+                  steps:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  trace_id:
+                    type: string
+                  usage:
+                    type: object
+                    properties:
+                      jev_input_tokens:
+                        type: integer
+                      llm_tokens:
+                        type: integer
+                      cost_usd:
+                        type: number
+  /v1/decide:
+    post:
+      summary: Jev 直通校验版（state + questions → answers）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state, questions]
+              properties:
+                state: {}
+                model:
+                  type: string
+                  default: jev-1.13.0
+                questions:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Jev answers 透传 + 审计字段
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [model, answers, usage]
+                properties:
+                  model:
+                    type: string
+                  answers:
+                    type: object
+                    additionalProperties: true
+                  usage:
+                    type: object
+                    properties:
+                      input_tokens:
+                        type: integer
+                      output_tokens:
+                        type: integer
+  /v1/chat/completions:
+    post:
+      summary: 透传上游 chat completions（body 原样；model 按网关配置条件映射）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages]
+              properties:
+                model:
+                  type: string
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                provider:
+                  type: string
+                  description: 网关扩展字段，选上游 provider；会被剥离不转发
+      responses:
+        '200':
+          description: 上游响应原样返回（含流式 SSE）
+          content:
+            application/json:
+              schema:
+                type: object
+  /proxy/{provider}/{path}:
+    get:
+      summary: 完全透传（任意 method/path/query/body/headers 原样转发；鉴权替换为服务端密钥）
+      responses:
+        '200':
+          description: 上游响应原样返回（含流式 SSE）
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      summary: 完全透传（POST 示例；行为同上）
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 上游响应原样返回
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/models:
+    get:
+      summary: 聚合模型列表（Jev GET /v1/models + 已配置 LLM）
+      responses:
+        '200':
+          description: 模型列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+  /admin/packs:
+    get:
+      summary: 查看当前 Question Packs（北向 key 鉴权；admin 未启用时的兼容路径）
+      responses:
+        '200':
+          description: packs 定义
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/config:
+    get:
+      summary: 全量配置快照（密钥脱敏；需 X-Admin-Token）
+      responses:
+        '200':
+          description: 快照
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/policies:
+    get:
+      summary: 查看阈值（需 X-Admin-Token）
+      responses:
+        '200':
+          description: 阈值
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      summary: 在线更新阈值（热生效，带校验；需 X-Admin-Token）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 生效结果
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/jev:
+    patch:
+      summary: 更新 Jev endpoint/model_pin/timeout/retry（需 X-Admin-Token）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 生效结果
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/jev/key:
+    post:
+      summary: 轮换 Jev API key，即时生效（需 X-Admin-Token）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 生效结果（key 脱敏）
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/llm/providers:
+    get:
+      summary: 列出 LLM providers（需 X-Admin-Token）
+      responses:
+        '200':
+          description: provider 列表
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      summary: 新增或更新 provider（需 X-Admin-Token）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 生效结果
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      summary: 删除 provider（需 X-Admin-Token；默认 provider 需先切换）
+      responses:
+        '200':
+          description: 生效结果
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/llm/keys:
+    post:
+      summary: 轮换某 provider key（需 X-Admin-Token）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 生效结果
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/keys:
+    get:
+      summary: 列出租户 keys（name + 脱敏 key + 创建时间；需 X-Admin-Token）
+      responses:
+        '200':
+          description: 租户列表
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      summary: 给租户签发 key（{name, key?}，不带 key 则生成；明文只返回一次；需 X-Admin-Token）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 新 key 明文（仅此一次）
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      summary: 吊销租户 key（按 ?name= 或 ?key=；需 X-Admin-Token）
+      responses:
+        '200':
+          description: 生效结果
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/secrets:
+    get:
+      summary: 各密钥 set/unset 状态（不返回明文；需 X-Admin-Token）
+      responses:
+        '200':
+          description: 状态
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/changes:
+    get:
+      summary: 管理操作审计日志（需 X-Admin-Token）
+      responses:
+        '200':
+          description: 审计
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/reload:
+    post:
+      summary: 从磁盘重载配置（需 X-Admin-Token）
+      responses:
+        '200':
+          description: 生效结果
+          content:
+            application/json:
+              schema:
+                type: object

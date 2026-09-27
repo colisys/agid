@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- 仅供 npm run dev（vite HMR）使用：直接加载 TS 源码，免构建。
+     生产页面是 ui/app/index.html（esbuild 产物），两者互不影响。
+     注意：vite 源(localhost:5173) 与生产页(网关源) 的 localStorage 互相独立，
+     首次在 dev 页要重新填一次 Admin Token / 大名。 -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>地牢探险 · Ember (dev)</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/app/main.ts"></script>
+  </body>
+</html>

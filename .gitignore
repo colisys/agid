@@ -1,0 +1,20 @@
+# 运行期暂存产物统一放这里（compose 编排、生成物等），不入库
+data/
+bin/
+
+# 网关的运行时覆盖文件（admin 改阈值/换 key 后落盘），明文含凭据，绝不入库。
+# 位置跟随配置文件：仓库内 configs/ 与安装版 ~/.config/gateway/ 各一份。
+configs/runtime-overrides.json
+runtime-overrides.json
+
+.trae
+.commandcode
+.opencode
+.oracle
+.vscode
+.idea
+__pycache__
+dist/
+
+.env
+.DS_Store

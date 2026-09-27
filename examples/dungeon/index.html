@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- vite root 的默认入口：跳到 dev.html（真正的开发页，直接加载 TS 源码）。
+     生产页面是 ui/app/index.html（esbuild 产物，由网关 /play/dungeon/app/ 提供）。 -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>地牢探险 · Ember (dev)</title>
+    <script>
+      location.replace("/dev.html" + location.search);
+    </script>
+  </head>
+  <body>
+    <a href="/dev.html">进入开发页</a>
+  </body>
+</html>

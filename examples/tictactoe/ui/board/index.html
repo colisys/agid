@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>井字棋 · 网关对局</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 420px; margin: 2em auto; padding: 0 1em; }
+  #board { display: grid; grid-template-columns: repeat(3, 90px); gap: 6px; margin: 1em 0; }
+  #board button { width: 90px; height: 90px; font-size: 2em; cursor: pointer; }
+  #board button:disabled { cursor: default; }
+  #log { white-space: pre-wrap; font-size: .85em; color: #555; max-height: 160px; overflow: auto; }
+  label { display: block; margin: .4em 0; font-size: .9em; }
+  input, select { font-size: 1em; }
+</style>
+</head>
+<body>
+<h2>井字棋 · 人机对战</h2>
+<label>网关地址 <input id="base" value="" size="26" placeholder="留空 = 本页面同源网关"></label>
+<label>Admin Token <input id="token" type="password" size="26" autocomplete="off" spellcheck="false" placeholder="loopback 开放模式可留空"></label>
+<label>AI 脑
+  <select id="brain"><option>blocker</option><option>random</option></select>
+  你执 <select id="side"><option value="X">X（先手）</option><option value="O">O（后手）</option></select>
+</label>
+<button id="new">开局</button>
+<span id="status"></span>
+<div id="board"></div>
+<div id="log"></div>
+<script>
+const $ = id => document.getElementById(id);
+let matchId = null, myMark = "X", over = false, es = null, cur = null;
+
+function headers() {
+  const h = { "Content-Type": "application/json" };
+  const t = $("token").value.trim();
+  if (t) {
+    // HTTP 头只允许 ISO-8859-1：混入中文等字符时 fetch 会直接抛晦涩错误，这里先拦下给提示
+    if (/[^\x00-\xff]/.test(t)) throw new Error("Admin Token 含非 ASCII 字符（可能是误贴了中文或浏览器自动填充），请重新填写");
+    h["X-Admin-Token"] = t;
+  }
+  return h;
+}
+function base() {
+  const v = $("base").value.trim();
+  if (v) return v.replace(/\/$/, "");
+  return location.origin; // 同源：页面由网关 /play 托管时直接可用
+}
+async function api(method, path, body) {
+  const r = await fetch(base() + path, {
+    method, headers: headers(), body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error(method + " " + path + " -> " + r.status + " " + (await r.text()).slice(0, 120));
+  return r.json();
+}
+function log(s) { $("log").textContent += s + "\n"; $("log").scrollTop = 1e6; }
+function mySlot() { return myMark === "X" ? "p0" : "p1"; }
+
+function draw(board) {
+  const b = $("board"); b.innerHTML = "";
+  board.forEach((c, i) => {
+    const btn = document.createElement("button");
+    btn.textContent = c;
+    btn.disabled = over || c !== "" || cur === null || cur.turn !== myMark;
+    btn.onclick = () => move(i);
+    b.appendChild(btn);
+  });
+}
+
+function finishFrom(winner, reason, ticks) {
+  over = true; es && es.close();
+  $("status").textContent =
+    (!winner || winner === "draw") ? "和棋" :
+    reason === "max_ticks" ? "超时收官（" + ticks + " tick）" :
+    "胜者：" + winner;
+  log("对局结束：winner=" + (winner || "draw") + " reason=" + (reason || "-") + " ticks=" + ticks);
+  draw(cur ? cur.board : ["","","","","","","","",""]);
+}
+
+// 渲染直接来自 SSE payload：订阅时服务端先推当前快照（棋盘+轮到谁），之后只在
+// 真有落子/结束时推送；轮到人思考时推送通道保持静默，不再有心跳消息。
+function onMsg(msg) {
+  if (!msg.state) return;
+  cur = msg.state;
+  if (msg.done) { finishFrom(msg.result && msg.result.winner, msg.result && msg.result.reason, msg.tick); return; } // json tag 全小写
+  if (msg.state.winner) { finishFrom(msg.state.winner === "draw" ? "" : msg.state.winner, msg.state.winner, msg.tick); return; }
+  (msg.events || []).forEach(ev => {
+    if (ev.type === "illegal") log("非法落子 " + JSON.stringify(ev.cell ?? "") + "，换一手");
+    if (ev.type === "move" && ev.player !== mySlot()) log("AI 落子 " + ev.cell);
+  });
+  draw(msg.state.board);
+  $("status").textContent = "轮到 " + msg.state.turn + (msg.state.turn === myMark ? "（你）" : "（AI）");
+}
+
+async function move(cell) {
+  if (over || !cur || cur.winner || cur.turn !== myMark) return;
+  if (cur.board[cell] !== "") { log("格子 " + cell + " 已被占，换一手"); return; }
+  try {
+    await api("POST", "/v1/games/" + matchId + "/commands",
+      { player: mySlot(), commands: { cell } });
+    log("你落子 " + cell);
+  } catch (e) {
+    if (String(e.message).includes("match over")) finishFrom("", "over", cur.tick);
+    else $("status").textContent = "落子失败：" + e.message;
+  }
+}
+
+$("new").onclick = async () => {
+  try {
+    es && es.close(); $("log").textContent = "";
+    myMark = $("side").value;
+    const aiBrain = $("brain").value;
+    // p0=X, p1=O：人在哪边，哪边就是 human 槽。
+    const players = myMark === "X"
+      ? [{ human: true }, { brain: { brain: aiBrain } }]
+      : [{ brain: { brain: aiBrain } }, { human: true }];
+    const m = await api("POST", "/v1/games",
+      { game: "tictactoe", players, tick_ms: 300, max_ticks: 200 });
+    matchId = m.match_id; over = false;
+    log("开局 " + matchId + "，你执 " + myMark);
+    // SSE 推送刷新（带 token 需 query 传：EventSource 不支持自定义头）。
+    const q = $("token").value ? "?token=" + encodeURIComponent($("token").value) : "";
+    es = new EventSource(base() + "/v1/games/" + matchId + "/events" + q);
+    es.addEventListener("tick", e => onMsg(JSON.parse(e.data)));
+    es.addEventListener("over", e => onMsg(JSON.parse(e.data)));
+    es.onerror = () => { /* over 后连接由服务端关闭，属正常 */ };
+  } catch (e) { $("status").textContent = "失败：" + e.message; }
+};
+draw(["","","","","","","","",""]);
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "income_per_tick": 60,
+  "army_growth": 12,
+  "base_regen_defend": 15,
+  "push_chip_vs_base": 25,
+  "push_chip_vs_army_div": 6,
+  "rush_army_loss_div": 3,
+  "rush_enemy_half_div": 2,
+  "base_max": 1000,
+  "note": "Mirrors TUNING inlined in rules.js; edit rules.js to apply."
+}

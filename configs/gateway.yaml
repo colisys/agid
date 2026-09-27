@@ -1,0 +1,57 @@
+server:
+  listen: "127.0.0.1:8080"
+  hot_reload: true
+
+jsflow:
+  pool_size: 4
+  script_file: ""   # empty = built-in default orchestration flow
+
+games:
+  # comma-separated roots; each holds one folder per game (<root>/<game>/rules.js)
+  games_dir: "examples,scripts/games"
+  # Pack services' writable areas live under this host directory. Each service
+  # gets <data_root>/<its manifest data_dir> (default "<game>/<service>") as
+  # SVC_DATA, so dev and the compose layout put their files in the same place.
+  data_root: "data"
+  default_tick_ms: 500
+  max_matches: 100
+  replay_cap: 2000
+  webhook_url: ""
+  webhook_secret: ""
+
+jev:
+  endpoint: https://api.typesafe.ai/v1/systemone
+  models_endpoint: https://api.typesafe.ai/v1/models
+  model_pin: jev-1.13.0
+  dev_alias: jev-latest
+  timeout_ms: 15000
+  retry: { max_attempts: 4, base_backoff_ms: 300, honor_retry_after: true }
+  budgets: { requests_per_min: 1200, tokens_per_sec: 250000, state_plus_longest_question: 32768, total_per_request: 65536 }
+  failover:
+    high_risk: fail_closed
+    low_risk: fail_open_with_audit_tag
+
+llm_providers:
+  default: openai
+  providers:
+    # model 必填：上游要求请求携带模型名，留空会在网关本地报错（不发出请求）
+    - { name: openai, kind: openai_compat, endpoint: https://api.openai.com/v1, model: gpt-5.4-mini }
+    - { name: anthropic, kind: openai_compat, endpoint: https://api.anthropic.com/v1, model: claude-sonnet-5 }
+    - { name: gemini, kind: openai_compat, endpoint: https://generativelanguage.googleapis.com/v1beta/openai/, model: gemini-2.5-flash }
+
+thresholds:
+  intent_human_below: 0.6
+  low_risk_allow_at: 0.6
+  high_risk_allow_above: 0.85
+  complexity_human_above: 1.0
+  complexity_human_conf_below: 0.5
+
+risk_weights:
+  mode: any_severe_blocks
+  note: 高风险不用加权平均，任一严重违规即拦；权重只用于 selection composite scoring
+
+quotas:
+  tenants:
+    - { id: demo, jev_tpm: 60000, llm_cost_usd_per_day: 10.0 }
+
+packs_ref: docs/architecture.md 附录B

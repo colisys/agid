@@ -1,0 +1,204 @@
+<!doctype html>
+<!-- PM 后台：能力演示页——证明网关侧 Python 后端能监听并操作游戏的活动 state。
+     数据源：pm 服务（/svc/dungeon/pm/*，网关反代）。活动局视图来自 gm 脑席的
+     每轮 /observe 上报；GM 操作 POST /op 入队，经 gm 席 /poll 取回、rules.tick
+     校验执行——生效后对局日志出现「[后台]」行。写操作需 X-Admin-Token（与
+     /v1/games 同一把 Admin Token；pm 服务端 PM_TOKEN env 校验）。 -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>地牢 PM 后台 · 监听与操纵</title>
+    <style>
+      :root {
+        --fg: #8ee88a;
+        --dim: #5c7a5c;
+        --bg: #0a0f0a;
+        --line: #1e2b1e;
+        --amber: #e8b46a;
+        --blue: #7fb3d5;
+        --bad: #d97a6c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        font-size: 14px;
+        margin: 0 auto;
+        max-width: 880px;
+        padding: 1em;
+      }
+      h1 { font-size: 1.2em; color: var(--amber); margin: 0.2em 0; }
+      .sub { color: var(--dim); margin: 0.2em 0 1em; }
+      .row { display: flex; gap: 0.5em; align-items: center; flex-wrap: wrap; }
+      input, button, select {
+        font: inherit;
+        background: #101810;
+        color: var(--fg);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0.3em 0.6em;
+      }
+      input { width: 22em; }
+      button { cursor: pointer; }
+      button:hover { border-color: var(--amber); }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button.primary { border-color: var(--amber); color: var(--amber); }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 0.8em 1em;
+        margin: 0.8em 0;
+      }
+      .card h3 { margin: 0 0 0.4em; font-size: 1em; color: var(--amber); }
+      .kv { color: var(--dim); }
+      .kv b { color: var(--fg); font-weight: normal; }
+      .hp { color: var(--bad); }
+      .gm { color: var(--blue); }
+      .stale { opacity: 0.45; }
+      .log { color: var(--dim); white-space: pre-wrap; font-size: 0.9em; margin-top: 0.4em; }
+      .ops { margin-top: 0.5em; display: flex; gap: 0.4em; flex-wrap: wrap; align-items: center; }
+      .ops input, .ops select { width: auto; max-width: 12em; }
+      .err { color: var(--bad); }
+      .ok { color: var(--fg); }
+      .hint { color: var(--dim); font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <h1>地牢 PM 后台</h1>
+    <p class="sub">
+      网关侧 Python 服务（services/pm.py）的监听与操纵演示：gm 脑席每轮上报快照；
+      这里下发的操作经队列 → gm 席取回 → 规则校验执行，对局日志出现「[后台]」行。
+    </p>
+
+    <div class="row">
+      <label class="kv">Admin Token <input id="token" type="password" autocomplete="off" spellcheck="false" /></label>
+      <button id="saveTok" class="primary">记住 Token</button>
+      <span id="authHint" class="hint"></span>
+    </div>
+    <p class="hint">
+      Token 只存本机 localStorage（dungeon.pm.v1），经 X-Admin-Token 头直达 pm 服务；
+      服务端 PM_TOKEN 未设置时写操作放行（本地开发模式）。
+    </p>
+
+    <div class="row">
+      <button id="refresh" class="primary">刷新活动局</button>
+      <span id="status" class="hint">自动轮询：5s</span>
+    </div>
+    <div id="matches"></div>
+
+    <script>
+      const KEY = "dungeon.pm.v1";
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      let timer = null;
+
+      const token = () => localStorage.getItem(KEY) || "";
+      $("token").value = token();
+      $("saveTok").onclick = () => {
+        localStorage.setItem(KEY, $("token").value.trim());
+        authHint();
+      };
+      function authHint() {
+        $("authHint").textContent = token() ? "已配置" : "未配置：GM 操作会被服务端拒绝（除非 PM_TOKEN 未设）";
+      }
+      authHint();
+
+      function headers() {
+        return { "Content-Type": "application/json", "X-Admin-Token": token() };
+      }
+      async function call(path, method, body) {
+        const r = await fetch("/svc/dungeon/pm" + path, {
+          method: method || "GET",
+          headers: headers(),
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((data && data.error) || "HTTP " + r.status);
+        return data;
+      }
+
+      function opBtn(key, op, label) {
+        return (
+          '<button data-op="' + op + '" data-key="' + esc(key) + '">' + label + "</button>"
+        );
+      }
+
+      function render(ms) {
+        const el = $("matches");
+        if (!ms.length) {
+          el.innerHTML =
+            '<div class="card stale">还没有活动局被监听——开一局地牢（gm 席已自动挂上），' +
+            "打一轮后这里就会出现实时视图。</div>";
+          return;
+        }
+        el.innerHTML = ms
+          .map((m) => {
+            const h = m.hero || {};
+            const foe = m.foe
+              ? '<span class="hp">' + esc(m.foe.name) + " " + m.foe.hp + "/" + m.foe.hp_max + "</span>"
+              : "无敌";
+            const log = (m.log || [])
+              .map((l) => "t" + l.tick + " " + esc(l.text))
+              .join("\n");
+            return (
+              '<div class="card' + (m.age > 30 ? " stale" : "") + '" data-key="' + esc(m.key) + '">' +
+              "<h3>seed " + esc(m.key) + " · 第 " + esc(m.depth) + " 层 · 第 " + esc(m.tick) + " 轮" +
+              (m.resumes ? ' · 续命×' + esc(m.resumes) : "") + "</h3>" +
+              '<div class="kv">体力 <b class="hp">' + esc(h.hp) + "/" + esc(h.hp_max) +
+              '</b> · 攻 <b>' + esc(h.atk) + "</b> · 金币 <b>" + esc(m.gold) +
+              "</b> · 击杀 <b>" + esc(m.kills) + "</b> · 药水 <b>" + esc(m.potions) +
+              "</b> · 眼前 " + foe + (m.pending ? " · ⚑" + esc(m.pending.title) : "") + "</div>" +
+              '<div class="kv">背包 <b>' + esc((m.inventory || []).join("、") || "空") + "</b></div>" +
+              '<div class="log">' + log + "</div>" +
+              '<div class="ops">' +
+              opBtn(m.key, "grant_gold", "+100 金") +
+              opBtn(m.key, "grant_gold", "-50 金") +
+              opBtn(m.key, "heal_full", "回满血") +
+              '<button data-op="set_atk" data-key="' + esc(m.key) + '" data-base="' + esc(h.atk) + '">攻+5</button>' +
+              opBtn(m.key, "add_item", "发·焰刃") +
+              '<input placeholder="道具 id（发别的）" data-arg="id" />' +
+              opBtn(m.key, "add_item", "发道具") +
+              "</div></div>"
+            );
+          })
+          .join("");
+        el.querySelectorAll("button[data-op]").forEach((b) => {
+          b.onclick = async () => {
+            const card = b.closest(".card");
+            const key = card.getAttribute("data-key");
+            const op = b.getAttribute("data-op");
+            const args = {};
+            if (op === "grant_gold") args.amount = b.textContent.includes("-") ? -50 : 100;
+            if (op === "set_atk") args.value = (parseInt(b.getAttribute("data-base"), 10) || 0) + 5;
+            if (op === "add_item") {
+              args.id = b.textContent === "发·焰刃" ? "flame_blade" : (card.querySelector('input[data-arg="id"]').value || "").trim();
+              if (!args.id) return;
+            }
+            b.disabled = true;
+            try {
+              await call("/op", "POST", { key, op, args });
+              $("status").innerHTML = '<span class="ok">已下发 ' + op + " → 等待该局下一轮生效</span>";
+            } catch (e) {
+              $("status").innerHTML = '<span class="err">' + esc(e.message) + "</span>";
+            }
+            b.disabled = false;
+          };
+        });
+      }
+
+      async function refresh() {
+        try {
+          const d = await call("/live");
+          render(d.matches || []);
+        } catch (e) {
+          $("matches").innerHTML = '<div class="card"><span class="err">pm 服务不可用：' + esc(e.message) + "</span></div>";
+        }
+      }
+      $("refresh").onclick = refresh;
+      refresh();
+      timer = setInterval(refresh, 5000);
+    </script>
+  </body>
+</html>
