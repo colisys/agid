@@ -5,8 +5,7 @@
     "sage": ["jev", "svc:solver"],
     "narrator": ["llm", "svc:pm"],
     "oracle": ["jev", "svc:solver"],
-    "dm": ["jev"],
-    "gm": ["svc:pm"]
+    "dm": ["jev"]
   },
   "services": {
     "solver": {

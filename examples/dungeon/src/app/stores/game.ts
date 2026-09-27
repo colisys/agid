@@ -93,8 +93,8 @@ export const useGameStore = defineStore("game", {
     },
     // 建局：p0 = 你（人），p1 = 旁白席（LLM 文案/传说/墓志铭），p2 = 军师
     // 低语席（Jev 建议可听可不听），p3 = 地牢之主席（Jev 对抗，规则侧有冷却
-    // 与浅层豁免兜底），p4 = gm 观察员席（把快照摘要推给 pm 后端、取回后台
-    // 操作——「网关侧后端监听/操纵活局」的能力展示通道）。
+    // 与浅层豁免兜底）。pm 后端经网关 match bridge 直接监听/操纵活局，
+    // 不再需要 gm 脑席中转。
     async enter(resumeState?: State) {
       const st = useSettingsStore();
       const hero = st.name.trim() || "无名者";
@@ -119,7 +119,6 @@ export const useGameStore = defineStore("game", {
               { brain: { brain: "narrator" } },
               { brain: { brain: "oracle" } },
               { brain: { brain: "dm" } },
-              { brain: { brain: "gm" } },
             ],
             // 守主遗产：上局死亡结转的物品条目（规则端会再校验，上限 3）；
             // 秘密资料：历局鉴定名录，规则端据此决定掉落是否蒙尘；

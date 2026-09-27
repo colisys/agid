@@ -308,8 +308,9 @@ curl -X POST localhost:8080/svc/dungeon/solver/hint -d '{"hp":3,"depth":2}'
 per-service** 的：泄露一个后端的 token 不能操作别的对局、别的游戏或别的服务。
 服务从 `GATEWAY_URL`（网关注入，非凭据）知道往哪投递。
 
-**旧路径仍可用**：不声明 `match_access` 的服务行为完全不变；地牢的 pm 在桥接
-未就绪时仍回退到「队列 + gm 脑席」中转。
+**旧路径已删除**：地牢的 gm 脑席中转（`gm.ts`、`/poll`、`_OPS` 队列）已在
+match bridge 落地后整体移除——pm 服务只认 bridge 载荷，桥接凭证未就绪时
+`/op` 返回 409 让调用方重试。
 
 ### 容器隔离（compose 配置生成）
 

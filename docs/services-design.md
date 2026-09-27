@@ -212,4 +212,6 @@ admin 全权、player 限本局。前端从此不再需要 admin token。
 `/bankgen` 文案生成继续可用的最小改动。`pm.py`、`src/brains/gm.ts`、`ui/*`
 均未触碰。
 
-`gm.ts` / `pm.py` 的中转逻辑在第 3 步之后会成为可删代码，**暂不提前动**。
+`gm.ts` 的中转逻辑在第 3 步完成后已删除（2026-09-27）：gm 脑席（`src/brains/gm.ts`、
+manifest capability、建局席位）整体移除，`pm.py` 只收 bridge 载荷、`/poll` 与
+`_OPS` 队列一并删除——监听/操纵全部走 match bridge。

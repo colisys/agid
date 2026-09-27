@@ -873,7 +873,7 @@ button:disabled {
   opacity: 0.95;
 }
 
-/* 后台 GM 操作生效行：网关侧后端操纵活局的能力展示（pm 服务 → gm 席 → 规则） */
+/* 后台 GM 操作生效行：网关侧后端操纵活局的能力展示（pm 服务 → match bridge → 规则） */
 .log-body .line.gm {
   color: #7fb3d5;
   opacity: 0.95;

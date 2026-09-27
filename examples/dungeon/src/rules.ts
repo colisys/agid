@@ -628,8 +628,8 @@ function pickBrain<T>(
 }
 
 // ---- GM 后台通道（v5 能力展示）---------------------------------------------
-// 网关侧 Python 服务（services/pm.py）排队 GM 操作 → gm 脑席 /poll 取回 →
-// commands.gm 转发到这里。合法性全部归规则：逐条白名单校验，非法即忽略。
+// 网关侧 Python 服务（services/pm.py）经 match bridge 直投 commands.gm（落在
+// __svc__ 保留席位）到这里。合法性全部归规则：逐条白名单校验，非法即忽略。
 function collectGmOps(
   commands: Record<string, Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
@@ -2246,7 +2246,7 @@ function tick(args: {
     }
   }
 
-  // 2e. GM 后台操作：pm 服务排队、gm 脑席转发的 state 操纵。终局免战；
+  // 2e. GM 后台操作：pm 服务经 match bridge 投递的 state 操纵。终局免战；
   //     GM 轮不结算战斗（无 p0 action，下方结算守卫只认显式行动）。
   if (gmOps.length && !s.ending) {
     applyGmOps(s, gmOps, events);

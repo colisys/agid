@@ -20,7 +20,6 @@ const entries = [
   ["src/brains/narrator.ts", "brains/narrator.js", {}],
   ["src/brains/oracle.ts", "brains/oracle.js", {}],
   ["src/brains/dm.ts", "brains/dm.js", {}],
-  ["src/brains/gm.ts", "brains/gm.js", {}],
   // Vue+Pinia 版 UI：src/app/main.ts -> ui/app/assets/app.js + app.css（import 的 css 由 esbuild 同名输出）
   // 组件是 TSX（src/app/**.tsx）：automatic runtime（vue/jsx-runtime 的 jsx/jsxs 就是 h），
   // tsc 走 jsx:react-jsx + jsxImportSource:vue 做类型检查。"vue" 默认解析就是 runtime-only 版

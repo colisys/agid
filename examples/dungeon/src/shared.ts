@@ -169,8 +169,8 @@ export interface EventVariant {
   desc: string;
 }
 
-// GM 操作（能力展示：网关侧 Python 后端经 gm 脑席操纵活动对局 state）。
-// 合法性全部归规则——pm.py 只排队转发，rules.tick 逐条校验执行。
+// GM 操作（能力展示：网关侧 Python 后端经 match bridge 操纵活动对局 state）。
+// 合法性全部归规则——pm.py 直投 commands.gm，rules.tick 逐条校验执行。
 export interface GmOps {
   ops?: Array<{
     op: string; // grant_gold | set_hp | heal_full | set_atk | add_item | del_item
@@ -199,7 +199,7 @@ export interface Commands {
   epitaph?: { text: string }; // narrator seat: death epitaph
   whisper?: Whisper; // oracle seat (Jev advisor)
   dm?: DmMove; // dm seat (Jev dungeon master)
-  gm?: GmOps; // gm seat: ops queued by the pm backend (capability demo)
+  gm?: GmOps; // __svc__ seat: ops delivered by the pm backend via match bridge
   prologue?: { text: string }; // narrator seat: opening backstory (once, first tick)
   event_variants?: Record<string, EventVariant[]>; // narrator seat: 事件房动态文案（异步预生成回传）
 }

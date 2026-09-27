@@ -56,8 +56,6 @@ examples/dungeon/
                         #   可听可不听（commands.whisper，sig 去重），Jev 挂了自动静默
     dm.js               # 地牢之主席（人类局）：Jev 挑对抗手段（伏击/诅咒/落石），规则侧有
                         #   冷却（dm_cooldown）与浅层豁免（dm_min_depth）兜底
-    gm.js               # 观察员/操纵员席（p4）：桥接之前的路径，现仅作兼容保留——
-                        #   每轮 POST 摘要给 pm、/poll 取回队列里的 GM 操作
   services/
     solver.py           # 包内 Python 后端：POST /hint 返回一句战术提示（sage/oracle 经 host.svc 消费）
     pm.py               # 「真正的后端」演示：监听/操纵活局 + 中断续玩存档（见下章）
@@ -137,14 +135,14 @@ tick 概念——行为驱动下 1 tick 就是玩家的一轮行动，世界静�
 **监听**：网关的 match bridge 在每个真实 tick 后把完整 state `POST /observe`
 推给 pm（载荷含 per-match token、`ops_path`、`notify_path`），pm 记下凭证并压成
 PM 页要的摘要（内存保留最近 32 局，`GET /svc/dungeon/pm/live` 轮询渲染，
-`bridged` 字段标出该局是否已桥接）。旧的 gm 脑席路径仍兼容，但不再是监听所必需。
+`bridged` 字段标出该局是否已桥接）。
 
 **操纵**：PM 后台页（`/play/dungeon/pm/`）下发的操作 `POST /op` **经 match bridge
 直连投递**到对局——网关校验 manifest 声明的通道白名单后，把指令放进保留席位
 `__svc__` 并唤醒 tick loop，下一 tick 由 `rules.tick` 逐条白名单校验执行
 （grant_gold/set_hp/heal_full/set_atk/add_item/del_item，非法即忽略），对局日志
-出现「[后台]」行。全程**不需要 gm 脑席在场**，也没有一 tick 的轮询延迟；桥接尚未
-就绪（还没收到该局的 observe）时才回退到「队列 + gm 席 `/poll`」。
+出现「[后台]」行。全程**不需要 gm 脑席在场**，也没有一 tick 的轮询延迟；桥接
+尚未就绪（还没收到该局的 observe）时 `/op` 返回 409，PM 页稍后重试即可。
 
 **带外消息**：`GET /svc/dungeon/pm/announce?key=<seed>&text=…` 经桥接向对局的 SSE
 通道推一条独立的 `event: notice` —— 不进 state，因此不影响确定性复盘。这是后端

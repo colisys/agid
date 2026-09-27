@@ -2,14 +2,14 @@
 """pm: 地牢「真正的后端」演示服务——监听/操纵活局 + 中断续玩存档。
 
 由网关按 manifest.json 的 services 声明托管（SVC_PORT 注入端口）。两条消费路径：
-  1. gm 脑席:   host.svc("pm", "/observe"/"/poll")  （supervisor 内部直连，无鉴权）
+  1. 网关 match bridge: 网关每个真实 tick POST /observe 推完整 state（带凭证）
   2. PM 后台页: /svc/dungeon/pm/live 等              （网关反代；写操作须 X-Admin-Token）
 
 能力展示链路（GM 只是演示形式，本质是「后端能监听并操作游戏 state」）：
-  监听: gm 脑席每轮 POST /observe 快照摘要 → 内存 live[key]（覆盖式）
-  操纵: PM 页 POST /op（鉴权）→ ops 队列 → gm 脑席 GET /poll 取走 →
+  监听: 网关每 tick POST /observe 推快照 → 内存 live[key]（覆盖式）
+  操纵: PM 页 POST /op（鉴权）→ 按桥接凭证直投 /v1/internal/matches/<id>/ops →
         commands.gm → rules.tick 逐条校验执行（合法性全部归规则）
-  运行键: seed（decide 入参没有 match_id；UI 建局 seed 留空自动随机保证唯一）
+  运行键: seed（UI 建局 seed 留空自动随机保证唯一）
 
 存档（中断续玩）：UI 把 SSE raw state 存到 <data>/pm/saves/<name>.json（每玩家
 一份，原子落盘），建局时经 props.resume 传回，rules.newmatch 白名单 hydrate。
@@ -32,10 +32,9 @@ GM_OPS = {"grant_gold", "set_hp", "heal_full", "set_atk", "add_item", "del_item"
 
 _LOCK = threading.Lock()
 _LIVE = {}  # key(str seed) -> 最新 observe 视图 + ts（内存，重启即失）
-_OPS = {}  # key -> [op, ...] 走桥接直接投递；bridge 未就绪时的回退队列
 # 网关 match bridge 下发的每局凭证：seed -> (match_id, token, ops_path, notify_path)。
 # 网关每个 tick 推一次 observe（POST /observe），这里记下地址与 token；PM 页的
-# 操纵请求据此直接投递到对局，不再需要 gm 脑席中转。
+# 操纵请求据此直接投递到对局。
 _BRIDGE = {}  # key(str seed) -> {"match_id","token","ops_path","notify_path","ts"}
 
 # 文案库异步生成：narrator 脑席 POST /bankgen 投递任务（立即返回，不阻塞结算），
@@ -296,7 +295,7 @@ def gateway_url() -> str:
 
 
 def _digest_of(st: dict) -> dict:
-    """把桥接推来的完整 state 压成 PM 页要看的摘要（与 gm 脑席的 digest 同形）。"""
+    """把桥接推来的完整 state 压成 PM 页要看的摘要。"""
     hero = st.get("hero") if isinstance(st.get("hero"), dict) else {}
     foe = st.get("foe") if isinstance(st.get("foe"), dict) else None
     return {
@@ -345,15 +344,15 @@ def _bridge_post(path: str, token: str, body: dict) -> bool:
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return 200 <= resp.status < 300
-    except Exception:  # noqa: BLE001 —— 对局可能已结束/卸载，交给回退路径
+    except Exception:  # noqa: BLE001 —— 对局可能已结束/卸载，按投递失败处理
         return False
 
 
 def post_ops(ops: list, key: str) -> bool:
-    """把 GM 操作经 match bridge 直接投递给对局。返回是否走了桥接。
+    """把 GM 操作经 match bridge 直接投递给对局。返回是否投递成功。
 
-    桥接就绪时走后端直连：没有脑席中转、没有一 tick 的轮询延迟。还没收到
-    该局的 observe 时返回 False，调用方回退到旧的队列 + gm 脑席路径。
+    网关每 tick 推 observe 时带来桥接凭证（remember_bridge 记录）；还没收到
+    该局的 observe 时凭证缺席，返回 False（调用方报 409 让 PM 页稍后重试）。
     """
     with _LOCK:
         b = dict(_BRIDGE.get(str(key)) or {})
@@ -406,14 +405,11 @@ def queue_op(req) -> tuple:
         return 400, {"error": "key and valid op required (ops: " + ", ".join(sorted(GM_OPS)) + ")"}
     args = req.get("args") if isinstance(req.get("args"), dict) else {}
     entry = {"op": op, **args}
-    # 桥接就绪 → 后端直连投递（网关唤醒 tick loop，规则下一 tick 生效）。
-    # 否则回退到队列，交给 gm 脑席 /poll 中转。
-    if post_ops([entry], key):
-        return 200, {"ok": True, "delivered": "bridge"}
-    with _LOCK:
-        _OPS.setdefault(key, []).append(entry)
-        _OPS[key] = _OPS[key][-16:]  # 每局队列封顶
-    return 200, {"ok": True, "queued": len(_OPS[key]), "delivered": "queue"}
+    # 桥接就绪 → 后端直连投递（网关唤醒 tick loop，规则下一 tick 生效）；
+    # 桥接凭证未就绪 → 409，PM 页稍后重试（网关每 tick 都会补推 observe）。
+    if not post_ops([entry], key):
+        return 409, {"error": "bridge not ready (no observe received yet)"}
+    return 200, {"ok": True, "delivered": "bridge"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -451,12 +447,6 @@ class Handler(BaseHTTPRequestHandler):
             ok = post_notice(key, {"text": str(text)[:200], "source": "pm"})
             self._reply(200 if ok else 409, {"ok": ok})
             return
-        if path == "/poll":
-            key = q.get("key", "")
-            with _LOCK:
-                ops = _OPS.pop(key, [])
-            self._reply(200, {"ops": ops})
-            return
         if path.startswith("/save/"):
             # 读存档免鉴权（与 solver 榜单同哲学：跨浏览器续玩不要求带 token）
             nm = q.get("name") or urllib.parse.unquote(path[len("/save/"):])
@@ -477,12 +467,10 @@ class Handler(BaseHTTPRequestHandler):
         self._reply(404, {"error": "unknown path"})
 
     def do_POST(self):
-        raw_path = self.path
-        path, _, qs = raw_path.partition("?")
-        path = path.rstrip("/")
-        if path not in ("/observe", "/op", "/save", "/poll", "/newmatch",
+        path = self.path.partition("?")[0].rstrip("/")
+        if path not in ("/observe", "/op", "/save", "/newmatch",
                         "/bankgen", "/bankgen/result"):
-            self._reply(404, {"error": "unknown path, use POST /newmatch /observe /op /save /poll /bankgen"})
+            self._reply(404, {"error": "unknown path, use POST /newmatch /observe /op /save /bankgen"})
             return
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -493,17 +481,11 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(req, dict):
             self._reply(400, {"error": "body must be an object"})
             return
-        # 脑席内部直连的 /observe /poll 不鉴权（supervisor 内网）；PM 页写操作鉴权
+        # 网关 match bridge 直连的 /observe 不鉴权（本机回环）；PM 页写操作鉴权
         if path in ("/op", "/save") and not authorized(self.headers):
             self._reply(403, {"error": "forbidden (X-Admin-Token)"})
             return
-        if path == "/poll":
-            # gm 脑席经 host.svc POST（query 或 body 带 key），取走即清空
-            key = req.get("key") or dict(p.split("=", 1) for p in qs.split("&") if "=" in p).get("key", "")
-            with _LOCK:
-                ops = _OPS.pop(str(key), [])
-            self._reply(200, {"ops": ops})
-        elif path == "/bankgen":
+        if path == "/bankgen":
             # narrator 脑席投递文案库补货任务（立即返回，LLM 在后台线程跑）
             code, resp = queue_bank_job(req)
             self._reply(code, resp)
@@ -511,35 +493,25 @@ class Handler(BaseHTTPRequestHandler):
             # host.svc 只有 POST：脑席领货也走 POST（幂等读）
             self._reply(200, bank_result())
         elif path == "/observe":
-            # 两种载荷：
-            #  a) 网关 match bridge：{match_id, token, state, ops_path, …} —— 网关
-            #     每个真实 tick 主动推，是本服务直连操纵对局的主路径。
-            #  b) gm 脑席：{key, observe:{摘要}} —— 旧的中转路径，没有 token。
-            # 适配在服务侧做：网关不该知道 pm 用 seed 当运行键。
+            # 网关 match bridge 每个真实 tick 推：{match_id, token, state,
+            # ops_path, …}。这是本服务直连监听/操纵对局的主路径；适配在服务
+            # 侧做（网关不该知道 pm 用 seed 当运行键）。
             st = req.get("state")
-            if req.get("token") and isinstance(st, dict):
-                key = str(st.get("seed") or req.get("match_id") or "")
-                ob = _digest_of(st)
-                bridged = True
-            else:
-                key = str(req.get("key") or "")
-                ob = req.get("observe")
-                bridged = False
-            if not key or not isinstance(ob, dict):
-                self._reply(400, {"error": "need bridge payload (token+state) or key+observe"})
+            if not (req.get("token") and isinstance(st, dict)):
+                self._reply(400, {"error": "need bridge payload (token+state)"})
                 return
+            key = str(st.get("seed") or req.get("match_id") or "")
+            ob = _digest_of(st)
             ob["ts"] = int(time.time())
-            if bridged:
-                remember_bridge(req, key)
+            remember_bridge(req, key)
             with _LOCK:
                 _LIVE[key] = {"observe": ob, "ts": ob["ts"]}
                 # 视图上限：内存演示用，超龄不清理会泄；保最近 32 局
                 if len(_LIVE) > 32:
                     for k in sorted(_LIVE, key=lambda k: _LIVE[k]["ts"])[:-32]:
                         _LIVE.pop(k, None)
-                        _OPS.pop(k, None)
                         _BRIDGE.pop(k, None)
-            self._reply(200, {"ok": True, "bridged": bridged})
+            self._reply(200, {"ok": True, "bridged": True})
         elif path == "/newmatch":
             # 代表玩家建局（manifest gateway_access.create_matches）。玩家
             # 页面只跟服务说话，operator 凭据不必进浏览器。

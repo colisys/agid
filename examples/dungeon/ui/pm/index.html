@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- PM 后台：能力演示页——证明网关侧 Python 后端能监听并操作游戏的活动 state。
-     数据源：pm 服务（/svc/dungeon/pm/*，网关反代）。活动局视图来自 gm 脑席的
-     每轮 /observe 上报；GM 操作 POST /op 入队，经 gm 席 /poll 取回、rules.tick
+     数据源：pm 服务（/svc/dungeon/pm/*，网关反代）。活动局视图来自网关 match
+     bridge 每 tick 的 /observe 推送；GM 操作 POST /op 按桥接凭证直投、rules.tick
      校验执行——生效后对局日志出现「[后台]」行。写操作需 X-Admin-Token（与
      /v1/games 同一把 Admin Token；pm 服务端 PM_TOKEN env 校验）。 -->
 <html lang="zh-CN">
@@ -68,8 +68,9 @@
   <body>
     <h1>地牢 PM 后台</h1>
     <p class="sub">
-      网关侧 Python 服务（services/pm.py）的监听与操纵演示：gm 脑席每轮上报快照；
-      这里下发的操作经队列 → gm 席取回 → 规则校验执行，对局日志出现「[后台]」行。
+      网关侧 Python 服务（services/pm.py）的监听与操纵演示：网关 match bridge
+      每 tick 推送快照；这里下发的操作经桥接凭证直投 → 规则校验执行，对局日志
+      出现「[后台]」行。
     </p>
 
     <div class="row">
@@ -129,8 +130,8 @@
         const el = $("matches");
         if (!ms.length) {
           el.innerHTML =
-            '<div class="card stale">还没有活动局被监听——开一局地牢（gm 席已自动挂上），' +
-            "打一轮后这里就会出现实时视图。</div>";
+            '<div class="card stale">还没有活动局被监听——开一局地牢，网关会自动' +
+            "推送 observe，打一轮后这里就会出现实时视图。</div>";
           return;
         }
         el.innerHTML = ms
