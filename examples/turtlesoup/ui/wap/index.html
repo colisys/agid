@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>海龟汤 · 网关对局</title>
+    <style>
+      :root {
+        --fg: #9db8d9;
+        --dim: #5c6f8a;
+        --bg: #0a0d14;
+        --line: #1d2637;
+        --amber: #e8c46a;
+        --good: #8ee88a;
+        --bad: #d97a6c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        font-size: 14px;
+        line-height: 1.55;
+        max-width: 520px;
+        margin: 1.2em auto;
+        padding: 0 0.8em 2em;
+      }
+      h2 {
+        font-size: 1.05em;
+        margin: 0.2em 0 0.6em;
+        letter-spacing: 0.08em;
+      }
+      .cfg {
+        border: 1px solid var(--line);
+        padding: 0.5em;
+        margin-bottom: 0.8em;
+      }
+      .cfg label {
+        display: block;
+        color: var(--dim);
+        font-size: 0.8em;
+        margin: 0.25em 0;
+      }
+      input,
+      select {
+        background: #060910;
+        color: var(--fg);
+        border: 1px solid var(--line);
+        font: inherit;
+        width: 12em;
+        padding: 0.1em 0.3em;
+      }
+      input.wide {
+        width: 100%;
+      }
+      button {
+        font: inherit;
+        background: #060910;
+        color: var(--fg);
+        border: 1px solid var(--line);
+        padding: 0.25em 0.6em;
+        cursor: pointer;
+        margin: 0.15em 0.2em 0.15em 0;
+      }
+      button:hover {
+        border-color: var(--fg);
+      }
+      button:disabled {
+        color: #2f3848;
+        border-color: #161d2a99;
+        cursor: default;
+      }
+      button.primary {
+        color: var(--amber);
+        border-color: #4a3f20;
+      }
+      button.primary:hover {
+        border-color: var(--amber);
+      }
+      #top {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px dashed var(--line);
+        padding-bottom: 0.3em;
+      }
+      #surface {
+        border: 1px solid #33405c;
+        background: #0d1220;
+        padding: 0.6em 0.7em;
+        margin: 0.6em 0;
+      }
+      #surface .ttl {
+        color: var(--amber);
+        letter-spacing: 0.1em;
+        font-size: 0.82em;
+        margin-bottom: 0.3em;
+      }
+      #pending {
+        min-height: 1.4em;
+        color: var(--amber);
+        font-size: 0.86em;
+      }
+      #pending.think::before {
+        content: "◈ ";
+      }
+      #askrow {
+        display: flex;
+        gap: 0.4em;
+        margin: 0.4em 0;
+      }
+      #askrow input {
+        flex: 1;
+        width: auto;
+      }
+      #me {
+        color: var(--dim);
+        font-size: 0.84em;
+        min-height: 1.3em;
+      }
+      #status {
+        color: var(--dim);
+        min-height: 1.4em;
+      }
+      #status.warn {
+        color: var(--bad);
+      }
+      #result {
+        border: 1px solid #4a3f20;
+        background: #12100a;
+        padding: 0.6em 0.7em;
+        margin: 0.6em 0;
+      }
+      #result .ttl {
+        color: var(--amber);
+        font-weight: bold;
+      }
+      #result .bottom {
+        color: var(--fg);
+        white-space: pre-wrap;
+      }
+      #log {
+        border-top: 1px dashed var(--line);
+        padding-top: 0.4em;
+        max-height: 45vh;
+        overflow-y: auto;
+        font-size: 0.86em;
+      }
+      #log div {
+        color: var(--dim);
+      }
+      #log div.new {
+        color: var(--fg);
+      }
+      #log .kind-answer {
+        color: var(--good);
+      }
+      #log .kind-verdict {
+        color: var(--good);
+      }
+      #log .kind-ask,
+      #log .kind-guess {
+        color: #b8c9e8;
+      }
+      #log .kind-surface {
+        color: var(--amber);
+      }
+      #log .kind-win,
+      #log .kind-reveal {
+        color: var(--amber);
+      }
+      #log .kind-illegal,
+      #log .kind-release {
+        color: var(--bad);
+      }
+      #log .t {
+        color: var(--dim);
+        font-size: 0.85em;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>海 龟 汤</h2>
+    <div class="cfg">
+      <label
+        >网关地址（留空 = 本页面同源网关）<input
+          id="base"
+          class="wide"
+          placeholder="同源"
+      /></label>
+      <label
+        >Admin Token（/v1/games 与 /admin 同权限，本机 loopback 也必须填）<input
+          id="token"
+          class="wide"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+      /></label>
+      <label
+        >对局 ID（留空 = 开新局；填了就围观/加入这局）<input
+          id="mid"
+          class="wide"
+          placeholder="留空开新局"
+          autocomplete="off"
+          spellcheck="false"
+      /></label>
+      <label
+        >种子 <input id="seed" type="number" placeholder="留空随机" />
+        （同种子同汤题，可复现）</label
+      >
+      <label
+        >我的座位
+        <select id="seat"></select>
+        （多人各自开页面选不同座位加入同一局）</label
+      >
+      <button id="new" class="primary">开新汤局</button>
+      <button id="join">加入对局</button>
+      <button id="stop">弃局</button>
+    </div>
+    <div id="top"><span id="head">未开局</span><span id="clock"></span></div>
+    <div id="surface"><div class="ttl">汤 面</div><span class="dim">锅还没热。</span></div>
+    <div id="pending"></div>
+    <div id="askrow">
+      <input
+        id="say"
+        class="wide"
+        maxlength="100"
+        placeholder="问一个能用「是 / 不是」回答的问题…"
+        autocomplete="off"
+      />
+    </div>
+    <div>
+      <button id="ask" class="primary">提问（ask:）</button>
+      <button id="guess" title="用上面的输入框内容发起竞猜，命中即胜">竞猜汤底（guess:）</button>
+    </div>
+    <div id="me"></div>
+    <div id="status"></div>
+    <div id="result" hidden></div>
+    <div id="log"></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      // 座位下拉：p0..p7 = 玩家1..玩家8（主持人是 p8 脑席，不占人类座位）
+      (function () {
+        const sel = $("seat");
+        for (let i = 0; i < 8; i++) {
+          const o = document.createElement("option");
+          o.value = "p" + i;
+          o.textContent = "玩家" + (i + 1);
+          sel.appendChild(o);
+        }
+      })();
+
+      let matchId = null,
+        over = true,
+        es = null,
+        cur = null,
+        busy = false,
+        busyTimer = null,
+        LIMITS = { ask: 20, guess: 2 }; // 规则常量：开局经 REST snapshot 拉一次（SSE raw state 不带）
+
+      function headers() {
+        const h = { "Content-Type": "application/json" };
+        const t = $("token").value.trim();
+        if (t) {
+          if (/[^\x00-\xff]/.test(t))
+            throw new Error(
+              "Admin Token 含非 ASCII 字符（可能是误贴了中文或浏览器自动填充），请重新填写",
+            );
+          h["X-Admin-Token"] = t;
+        }
+        return h;
+      }
+      function base() {
+        const v = $("base").value.trim();
+        return v ? v.replace(/\/$/, "") : location.origin;
+      }
+      async function api(method, path, body) {
+        const r = await fetch(base() + path, {
+          method,
+          headers: headers(),
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!r.ok)
+          throw new Error(
+            method +
+              " " +
+              path +
+              " -> " +
+              r.status +
+              " " +
+              (await r.text()).slice(0, 120),
+          );
+        return r.json();
+      }
+      function esc(t) {
+        return String(t == null ? "" : t).replace(
+          /[&<>"]/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+      }
+      const seatName = (seat) =>
+        "玩家" + (parseInt(String(seat).slice(1), 10) + 1);
+
+      // 渲染只来自 SSE payload：订阅时服务端先推当前快照，之后每个真实 tick 推一次。
+      function render(s) {
+        cur = s;
+        over = s.status === "ended";
+        if (s.ask_limit) LIMITS.ask = s.ask_limit;
+        if (s.guess_limit) LIMITS.guess = s.guess_limit;
+        $("head").textContent =
+          "汤题 · " + (s.puzzle ? s.puzzle.id : "?") + " · 第 " + s.tick + " 拍";
+        const b = (s.budget || {})[$("seat").value];
+        $("clock").textContent = b
+          ? "我的余额：提问 " + Math.max(0, LIMITS.ask - b.asks) + " · 竞猜 " + Math.max(0, LIMITS.guess - b.guesses)
+          : "";
+        $("surface").innerHTML =
+          '<div class="ttl">汤 面</div>' +
+          esc(s.puzzle ? s.puzzle.surface : "？");
+        const pd = $("pending");
+        if (s.pending_g) {
+          pd.className = "think";
+          pd.textContent =
+            "主持人正在核对" + seatName(s.pending_g.seat) + "的竞猜……";
+        } else if (s.pending_q) {
+          pd.className = "think";
+          pd.textContent =
+            "主持人思考中——" + seatName(s.pending_q.seat) + "的问题还没答。";
+        } else {
+          pd.className = "";
+          pd.textContent = over ? "" : "桌面安静。轮到你出手了。";
+        }
+        $("me").textContent = b
+          ? "我的座位：" +
+            seatName($("seat").value) +
+            " · 提问已用 " + b.asks + " · 竞猜已用 " + b.guesses
+          : "";
+        drawLog(s);
+        setBusy(false);
+      }
+
+      function drawLog(s) {
+        const el = $("log");
+        el.innerHTML = "";
+        (s.log || [])
+          .slice()
+          .reverse()
+          .forEach((e) => {
+            const d = document.createElement("div");
+            d.className = "kind-" + e.kind;
+            if (e.tick === s.tick) d.className += " new";
+            d.innerHTML =
+              '<span class="t">第' + e.tick + "拍</span> " + esc(e.text);
+            el.appendChild(d);
+          });
+      }
+
+      function showResult(result, ticks) {
+        over = true;
+        es && es.close();
+        const r = result || {};
+        const w = r.winner ? seatName(r.winner) + " 猜中了汤底！" : "没有人猜中——锅盖揭开。";
+        $("result").hidden = false;
+        $("result").innerHTML =
+          '<div class="ttl">终局 · ' +
+          esc(w) +
+          "（" +
+          ticks +
+          " 拍）</div>" +
+          '<div class="bottom">' +
+          esc(r.revealed || (cur && cur.revealed) || "") +
+          "</div>";
+        $("status").className = "";
+        $("status").textContent = "本场已结束。想再来一锅就开新局。";
+        $("pending").textContent = "";
+      }
+
+      function onMsg(msg) {
+        if (msg.done) {
+          showResult(msg.result, msg.tick);
+          if (msg.state) render(msg.state);
+          setBusy(false);
+          return;
+        }
+        if (!msg.state) return;
+        render(msg.state);
+        $("status").className = "";
+      }
+
+      // 指令下发互斥：请求在途时忽略后续点击；busy 解除靠 SSE 帧到达，
+      // 6 秒兜底计时防网络异常时永久锁死。
+      function setBusy(v) {
+        busy = v;
+        if (busyTimer) {
+          clearTimeout(busyTimer);
+          busyTimer = null;
+        }
+        if (v) busyTimer = setTimeout(() => setBusy(false), 6000);
+        ["ask", "guess"].forEach((id) => ($(id).disabled = v ? true : over));
+      }
+
+      async function send(kind) {
+        if (over || busy || !matchId) return;
+        const text = $("say").value.trim();
+        if (!text) {
+          $("status").className = "warn";
+          $("status").textContent = kind === "ask" ? "先写个问题。" : "先写下你的猜测。";
+          return;
+        }
+        setBusy(true);
+        try {
+          await api("POST", "/v1/games/" + matchId + "/commands", {
+            player: $("seat").value,
+            commands: { action: kind + ":" + text },
+          });
+          if (kind === "ask") $("say").value = "";
+        } catch (e) {
+          setBusy(false);
+          if (String(e.message).includes("match over")) showResult({}, cur ? cur.tick : 0);
+          else {
+            $("status").className = "warn";
+            $("status").textContent = "指令失败：" + e.message;
+          }
+        }
+      }
+      $("ask").onclick = () => send("ask");
+      $("guess").onclick = () => send("guess");
+      $("say").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") send("ask");
+      });
+
+      async function follow(id) {
+        matchId = id;
+        over = false;
+        $("result").hidden = true;
+        $("status").className = "";
+        $("status").textContent = "已上桌 " + matchId;
+        // REST GET 走 rules.snapshot()：带 ask_limit 等规则常量（SSE raw 不带），
+        // 开局拉一次缓存；渲染主体仍以 SSE 帧为准，这里失败不致命。
+        try {
+          const full = await api("GET", "/v1/games/" + id);
+          if (full.snapshot) render(full.snapshot);
+        } catch (e2) {
+          /* SSE 初始帧会补上 */
+        }
+        const q = $("token").value
+          ? "?token=" + encodeURIComponent($("token").value)
+          : "";
+        es = new EventSource(base() + "/v1/games/" + matchId + "/events" + q);
+        es.addEventListener("tick", (e) => onMsg(JSON.parse(e.data)));
+        es.addEventListener("over", (e) => onMsg(JSON.parse(e.data)));
+        es.onerror = () => {
+          /* over 后连接由服务端关闭，属正常 */
+        };
+      }
+
+      $("new").onclick = async () => {
+        try {
+          es && es.close();
+          $("log").innerHTML = "";
+          $("result").hidden = true;
+          // p0..p7 = 人类玩家，p8 = 主持人脑席（manifest 授 llm，判定走 judge 通道）
+          const players = [];
+          for (let i = 0; i < 8; i++) players.push({ human: true });
+          players.push({ brain: { brain: "host" } });
+          const m = await api("POST", "/v1/games", {
+            game: "turtlesoup",
+            seed: Number($("seed").value) || 0,
+            tick_ms: 2500,
+            players,
+          });
+          follow(m.match_id);
+        } catch (e) {
+          $("status").className = "warn";
+          $("status").textContent = "开局失败：" + e.message;
+        }
+      };
+
+      $("join").onclick = async () => {
+        const id = $("mid").value.trim();
+        if (!id) {
+          $("status").className = "warn";
+          $("status").textContent = "要加入的局请填对局 ID。";
+          return;
+        }
+        try {
+          es && es.close();
+          $("log").innerHTML = "";
+          $("result").hidden = true;
+          await follow(id);
+        } catch (e) {
+          $("status").className = "warn";
+          $("status").textContent = "加入失败：" + e.message;
+        }
+      };
+
+      $("stop").onclick = async () => {
+        if (!matchId) return;
+        try {
+          await api("POST", "/v1/games/" + matchId + "/stop", {});
+        } catch (e) {
+          /* 对局已卸载 */
+        }
+        over = true;
+        es && es.close();
+        $("status").className = "warn";
+        $("status").textContent = "本次汤局已弃。";
+      };
+    </script>
+  </body>
+</html>

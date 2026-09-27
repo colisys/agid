@@ -1,0 +1,13 @@
+{
+  "name": "turtlesoup-pack",
+  "private": true,
+  "description": "海龟汤示例包：TS 源码在 src/，产物 rules.js 与 brains/host.js 直接被网关读取（产物提交入库，网关运行时零 node 依赖）。",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}

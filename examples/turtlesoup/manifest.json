@@ -1,0 +1,6 @@
+{
+  "name": "海龟汤",
+  "capabilities": {
+    "host": ["llm"]
+  }
+}

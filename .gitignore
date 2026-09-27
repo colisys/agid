@@ -1,6 +1,7 @@
 # 运行期暂存产物统一放这里（compose 编排、生成物等），不入库
 data/
 bin/
+node_modules/
 
 # 地牢包 vite dev 模式的缓存（npm run dev 用，不入库）
 examples/dungeon/.vite/
